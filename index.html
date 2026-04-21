@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Asisten Perpustakaan Future Gate</title>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #f4f1eb;
+      --surface: #fffef9;
+      --surface2: #f0ede4;
+      --border: #ddd8ce;
+      --text: #1a1814;
+      --text2: #6b6560;
+      --text3: #9e9890;
+      --accent: #2d6a4f;
+      --accent-light: #e8f4ef;
+      --accent-text: #1b4332;
+      --user-bg: #2d6a4f;
+      --user-text: #ffffff;
+      --radius: 16px;
+      --radius-sm: 8px;
+    }
+
+    body {
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      background: var(--bg);
+      min-height: 100vh;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      padding: 20px;
+    }
+
+    .container {
+      width: 100%; max-width: 680px;
+      display: flex; flex-direction: column;
+      border-radius: 20px; overflow: hidden;
+      box-shadow: 0 4px 32px rgba(0,0,0,0.08), 0 1px 4px rgba(0,0,0,0.04);
+      border: 1px solid var(--border);
+    }
+
+    .header {
+      background: var(--accent);
+      padding: 18px 22px;
+      display: flex; align-items: center; gap: 14px;
+    }
+    .header-icon {
+      width: 44px; height: 44px;
+      background: rgba(255,255,255,0.15); border-radius: 12px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 22px; flex-shrink: 0;
+    }
+    .header-info { flex: 1; }
+    .header-name { font-size: 15px; font-weight: 600; color: #fff; margin-bottom: 2px; }
+    .header-sub {
+      font-size: 12px; color: rgba(255,255,255,0.7);
+      display: flex; align-items: center; gap: 5px;
+    }
+    .dot-online {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: #74d99f; display: inline-block;
+    }
+    .header-link {
+      font-size: 11px; color: rgba(255,255,255,0.65);
+      text-decoration: none; border: 1px solid rgba(255,255,255,0.25);
+      padding: 4px 10px; border-radius: 20px;
+    }
+    .header-link:hover { background: rgba(255,255,255,0.1); }
+
+    .messages {
+      background: var(--surface);
+      padding: 20px 18px;
+      display: flex; flex-direction: column; gap: 14px;
+      height: 440px; overflow-y: auto;
+    }
+    .messages::-webkit-scrollbar { width: 4px; }
+    .messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+    .msg { display: flex; gap: 8px; align-items: flex-end; }
+    .msg.user { flex-direction: row-reverse; }
+    .msg-av {
+      width: 30px; height: 30px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px; flex-shrink: 0;
+      background: var(--accent-light); border: 1px solid var(--border);
+    }
+    .msg.user .msg-av { background: var(--surface2); }
+
+    .bubble {
+      max-width: 78%; padding: 11px 15px;
+      font-size: 13.5px; line-height: 1.65; border-radius: 18px;
+    }
+    .msg.bot .bubble {
+      background: var(--surface2); color: var(--text);
+      border-radius: 4px 18px 18px 18px;
+      border: 1px solid var(--border);
+    }
+    .msg.user .bubble {
+      background: var(--user-bg); color: var(--user-text);
+      border-radius: 18px 4px 18px 18px;
+    }
+
+    .typing-wrap { display: flex; gap: 8px; align-items: flex-end; }
+    .typing {
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 4px 18px 18px 18px;
+      padding: 14px 16px;
+      display: flex; gap: 5px; align-items: center;
+    }
+    .typing span {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: var(--text3); animation: bounce 1.3s infinite;
+    }
+    .typing span:nth-child(2) { animation-delay: 0.2s; }
+    .typing span:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes bounce {
+      0%,60%,100% { transform: translateY(0); }
+      30% { transform: translateY(-6px); }
+    }
+
+    .suggestions {
+      background: var(--surface);
+      padding: 0 18px 14px;
+      display: flex; flex-wrap: wrap; gap: 6px;
+      border-top: 1px solid var(--border);
+    }
+    .suggestions-label {
+      width: 100%; font-size: 11px; color: var(--text3);
+      padding-top: 12px; margin-bottom: 2px;
+    }
+    .sug-btn {
+      font-size: 12px; padding: 6px 12px; border-radius: 20px; cursor: pointer;
+      background: var(--surface2); border: 1px solid var(--border);
+      color: var(--text2); font-family: 'Plus Jakarta Sans', sans-serif;
+      transition: all 0.15s;
+    }
+    .sug-btn:hover { background: var(--accent-light); color: var(--accent-text); border-color: var(--accent); }
+
+    .input-area {
+      background: var(--surface); padding: 14px 16px;
+      display: flex; gap: 8px; align-items: center;
+      border-top: 1px solid var(--border);
+    }
+    .input-area input {
+      flex: 1; font-size: 13.5px;
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      padding: 10px 14px; border-radius: 24px;
+      border: 1px solid var(--border);
+      background: var(--surface2); color: var(--text); outline: none;
+    }
+    .input-area input:focus { border-color: var(--accent); background: var(--surface); }
+    .input-area input::placeholder { color: var(--text3); }
+    .send-btn {
+      width: 40px; height: 40px; border-radius: 50%;
+      background: var(--accent); border: none; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0; transition: background 0.15s;
+    }
+    .send-btn:hover { background: var(--accent-text); }
+    .send-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+    .send-btn svg { width: 16px; height: 16px; fill: white; }
+
+    .footer {
+      background: var(--surface2); padding: 10px 18px;
+      font-size: 11px; color: var(--text3);
+      border-top: 1px solid var(--border);
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .footer a { color: var(--accent); text-decoration: none; }
+
+    @media (max-width: 480px) {
+      body { padding: 0; }
+      .container { border-radius: 0; min-height: 100vh; }
+      .messages { flex: 1; height: auto; min-height: 300px; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+
+  <div class="header">
+    <div class="header-icon">📚</div>
+    <div class="header-info">
+      <div class="header-name">Asisten Perpustakaan Future Gate</div>
+      <div class="header-sub">
+        <span class="dot-online"></span>
+        Data real-time dari SLIMS · SMA Future Gate
+      </div>
+    </div>
+    <a class="header-link" href="https://perpustakaan.smafg.sch.id/" target="_blank">Buka OPAC ↗</a>
+  </div>
+
+  <div class="messages" id="messages">
+    <div class="msg bot">
+      <div class="msg-av">📚</div>
+      <div class="bubble">
+        Halo! Saya asisten virtual <strong>Perpustakaan Future Gate</strong>. Saya bisa membantu kamu:<br><br>
+        📖 Mencari koleksi buku secara real-time<br>
+        ℹ️ Info layanan perpustakaan<br>
+        🗂️ Jelajahi koleksi berdasarkan kategori<br><br>
+        Silakan ketik pertanyaan atau cari buku yang kamu butuhkan! 😊
+      </div>
+    </div>
+  </div>
+
+  <div class="suggestions" id="suggestionsArea">
+    <div class="suggestions-label">Coba tanya:</div>
+    <button class="sug-btn" onclick="useSuggestion('Cari buku matematika')">📐 Buku matematika</button>
+    <button class="sug-btn" onclick="useSuggestion('Cari buku biologi')">🔬 Buku biologi</button>
+    <button class="sug-btn" onclick="useSuggestion('Cari buku agama Islam')">🕌 Buku agama</button>
+    <button class="sug-btn" onclick="useSuggestion('Koleksi buku sastra apa saja?')">📝 Buku sastra</button>
+    <button class="sug-btn" onclick="useSuggestion('Informasi perpustakaan dan jam buka')">🕐 Info perpustakaan</button>
+    <button class="sug-btn" onclick="useSuggestion('Bagaimana cara meminjam buku?')">📋 Cara pinjam buku</button>
+  </div>
+
+  <div class="input-area">
+    <input type="text" id="userInput"
+      placeholder="Ketik pertanyaan atau cari buku..."
+      onkeydown="if(event.key==='Enter') sendMessage()" />
+    <button class="send-btn" id="sendBtn" onclick="sendMessage()" title="Kirim">
+      <svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+    </button>
+  </div>
+
+  <div class="footer">
+    <span>Perpustakaan Future Gate · Jatiasih, Bekasi</span>
+    <a href="https://perpustakaan.smafg.sch.id/" target="_blank">perpustakaan.smafg.sch.id</a>
+  </div>
+
+</div>
+
+<script>
+  let conversationHistory = [];
+  const messagesEl = document.getElementById('messages');
+
+  function scrollBottom() {
+    setTimeout(() => { messagesEl.scrollTop = messagesEl.scrollHeight; }, 50);
+  }
+
+  function addUserMsg(text) {
+    const div = document.createElement('div');
+    div.className = 'msg user';
+    div.innerHTML = `<div class="msg-av">👤</div><div class="bubble">${escHtml(text)}</div>`;
+    messagesEl.appendChild(div);
+    scrollBottom();
+  }
+
+  function addBotMsg(html) {
+    const div = document.createElement('div');
+    div.className = 'msg bot';
+    div.innerHTML = `<div class="msg-av">📚</div><div class="bubble">${html}</div>`;
+    messagesEl.appendChild(div);
+    scrollBottom();
+  }
+
+  function showTyping() {
+    const div = document.createElement('div');
+    div.className = 'typing-wrap'; div.id = 'typingEl';
+    div.innerHTML = `<div class="msg-av">📚</div><div class="typing"><span></span><span></span><span></span></div>`;
+    messagesEl.appendChild(div); scrollBottom();
+  }
+
+  function hideTyping() {
+    const t = document.getElementById('typingEl');
+    if (t) t.remove();
+  }
+
+  function escHtml(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  function formatResponse(text) {
+    return text
+      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*(.*?)\*/g, '<em>$1</em>')
+      .replace(/\n\n/g, '<br><br>')
+      .replace(/\n/g, '<br>')
+      .replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" style="color:var(--accent);word-break:break-all;">$1</a>');
+  }
+
+  function useSuggestion(text) {
+    document.getElementById('userInput').value = text;
+    document.getElementById('suggestionsArea').style.display = 'none';
+    sendMessage();
+  }
+
+  async function sendMessage() {
+    const input = document.getElementById('userInput');
+    const sendBtn = document.getElementById('sendBtn');
+    const text = input.value.trim();
+    if (!text) return;
+
+    input.value = '';
+    sendBtn.disabled = true;
+    document.getElementById('suggestionsArea').style.display = 'none';
+
+    addUserMsg(text);
+    showTyping();
+
+    conversationHistory.push({ role: 'user', content: text });
+
+    try {
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: conversationHistory })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || `Server error ${response.status}`);
+      }
+
+      const replyText = data.reply || 'Maaf, tidak ada jawaban. Silakan coba lagi.';
+
+      conversationHistory.push({ role: 'assistant', content: replyText });
+
+      if (conversationHistory.length > 20) {
+        conversationHistory = conversationHistory.slice(-16);
+      }
+
+      hideTyping();
+      addBotMsg(formatResponse(replyText));
+
+    } catch (err) {
+      hideTyping();
+      addBotMsg('❌ Terjadi kesalahan: ' + err.message + '<br><small style="color:var(--text3)">Pastikan sudah deploy ke Vercel dan API key sudah diatur di Environment Variables.</small>');
+    }
+
+    sendBtn.disabled = false;
+    input.focus();
+  }
+</script>
+
+</body>
+</html>
