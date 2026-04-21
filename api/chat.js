@@ -9,6 +9,51 @@ export default async function handler(req, res) {
   if (!messages) return res.status(400).json({ error: 'Missing messages' });
 
   const LIBRARY_URL = 'https://perpustakaan.smafg.sch.id/';
+
+  // Ambil pesan terakhir dari user
+  const lastUserMessage = messages.filter(m => m.role === 'user').pop()?.content || '';
+
+  // Deteksi apakah user sedang mencari buku
+  const searchKeywords = ['cari', 'buku', 'ada', 'tersedia', 'koleksi', 'judul', 'mencari', 'temukan', 'punya'];
+  const isSearching = searchKeywords.some(k => lastUserMessage.toLowerCase().includes(k));
+
+  // Ekstrak kata kunci pencarian
+  const stopWords = ['cari', 'buku', 'ada', 'apakah', 'apa', 'yang', 'di', 'ke', 'dari', 'untuk', 'dengan', 'tersedia', 'koleksi', 'judul', 'mencari', 'temukan', 'punya', 'kalo', 'kalau', 'tentang'];
+  const keyword = lastUserMessage
+    .toLowerCase()
+    .split(' ')
+    .filter(w => !stopWords.includes(w) && w.length > 2)
+    .join(' ')
+    .trim();
+
+  // Fetch data OPAC jika user sedang mencari buku
+  let opacContext = '';
+  if (isSearching && keyword) {
+    try {
+      const opacRes = await fetch(`${LIBRARY_URL}index.php?keywords=${encodeURIComponent(keyword)}&search=search`);
+      const html = await opacRes.text();
+
+      // Parse judul buku dari HTML SLiMS
+      const titleMatches = [...html.matchAll(/class="titlelist"[^>]*>([^<]+)<\/a>/g)];
+      const authorMatches = [...html.matchAll(/class="author"[^>]*>([^<]+)<\/td>/g)];
+      const locationMatches = [...html.matchAll(/class="location"[^>]*>([^<]+)<\/td>/g)];
+
+      if (titleMatches.length > 0) {
+        const books = titleMatches.slice(0, 10).map((match, i) => {
+          const title = match[1].trim();
+          const author = authorMatches[i]?.[1]?.trim() || 'Tidak diketahui';
+          const location = locationMatches[i]?.[1]?.trim() || '-';
+          return `- ${title} | Penulis: ${author} | Lokasi: ${location}`;
+        });
+        opacContext = `\n\nData buku dari OPAC untuk kata kunci "${keyword}":\n${books.join('\n')}\nLink pencarian: ${LIBRARY_URL}index.php?keywords=${encodeURIComponent(keyword)}&search=search`;
+      } else {
+        opacContext = `\n\nHasil pencarian OPAC untuk kata kunci "${keyword}": Tidak ditemukan buku yang sesuai.\nLink pencarian: ${LIBRARY_URL}index.php?keywords=${encodeURIComponent(keyword)}&search=search`;
+      }
+    } catch (e) {
+      opacContext = `\n\nGagal mengambil data OPAC. Arahkan user ke: ${LIBRARY_URL}index.php?keywords=${encodeURIComponent(keyword)}&search=search`;
+    }
+  }
+
   const SYSTEM_PROMPT = `Kamu adalah asisten virtual yang ramah untuk Perpustakaan Future Gate.
 Informasi perpustakaan:
 - Nama: Perpustakaan Future Gate
@@ -22,9 +67,10 @@ Kategori Koleksi (Dewey Decimal):
 Lokasi: Future Gate Institut, Ma'had Bawwabatul Mustaqbal, Perpustakaan SMA FG, Pojok Pustaka Ruang Guru, Pojok Pustaka Ruang Terbuka Umum
 Tipe: Buku Bacaan, E-Book, Buku Referensi, Buku Teks, Jurnal, Majalah, Prosiding, Surat Kabar
 Instruksi:
-- Saat pengguna mencari buku, sertakan link langsung ke hasil pencarian OPAC: ${LIBRARY_URL}index.php?keywords=[kata_kunci]&search=search
+- Jika ada data buku dari OPAC, tampilkan langsung daftar bukunya kepada user
+- Jangan mengarang data buku yang tidak ada
 - Jawab dalam Bahasa Indonesia yang ramah dan singkat
-- Jangan mengarang data buku yang tidak ada`;
+- Selalu sertakan link pencarian OPAC di akhir jawaban${opacContext}`;
 
   try {
     const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
