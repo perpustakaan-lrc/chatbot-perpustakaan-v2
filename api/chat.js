@@ -10,15 +10,12 @@ export default async function handler(req, res) {
 
   const LIBRARY_URL = 'https://perpustakaan.smafg.sch.id/';
 
-  // Ambil pesan terakhir dari user
   const lastUserMessage = messages.filter(m => m.role === 'user').pop()?.content || '';
 
-  // Deteksi apakah user sedang mencari buku
-  const searchKeywords = ['cari', 'buku', 'ada', 'tersedia', 'koleksi', 'judul', 'mencari', 'temukan', 'punya', 'kalo', 'kalau'];
+  const searchKeywords = ['cari', 'buku', 'ada', 'tersedia', 'koleksi', 'judul', 'mencari', 'temukan', 'punya', 'kalo', 'kalau', 'dipinjam', 'pinjam'];
   const isSearching = searchKeywords.some(k => lastUserMessage.toLowerCase().includes(k));
 
-  // Ekstrak kata kunci pencarian
-  const stopWords = ['cari', 'buku', 'ada', 'apakah', 'apa', 'yang', 'di', 'ke', 'dari', 'untuk', 'dengan', 'tersedia', 'koleksi', 'judul', 'mencari', 'temukan', 'punya', 'kalo', 'kalau', 'tentang'];
+  const stopWords = ['cari', 'buku', 'ada', 'apakah', 'apa', 'yang', 'di', 'ke', 'dari', 'untuk', 'dengan', 'tersedia', 'koleksi', 'judul', 'mencari', 'temukan', 'punya', 'kalo', 'kalau', 'tentang', 'dipinjam', 'pinjam', 'mana'];
   const keyword = lastUserMessage
     .toLowerCase()
     .split(' ')
@@ -26,41 +23,53 @@ export default async function handler(req, res) {
     .join(' ')
     .trim();
 
-  // Fetch data OPAC jika user sedang mencari buku
+  // Fungsi ambil ketersediaan dari halaman detail buku
+  async function getAvailability(bookId) {
+    try {
+      const res = await fetch(`${LIBRARY_URL}index.php?p=show_detail&id=${bookId}`);
+      const html = await res.text();
+
+      // Parse baris ketersediaan dari tabel
+      const rowMatches = [...html.matchAll(/<tr><td class="biblio-item-code">([^<]+)<\/td><td class="biblio-call-number">([^<]+)<\/td><td class="biblio-location">([^<]+)<\/td><td[^>]*><b[^>]*>([^<]+)<\/b><\/td><\/tr>/g)];
+
+      if (rowMatches.length === 0) return 'Tidak ada data ketersediaan';
+
+      return rowMatches.map(r => `Kode: ${r[1]} | Lokasi: ${r[3]} | Status: ${r[4]}`).join(' | ');
+    } catch {
+      return 'Gagal mengambil ketersediaan';
+    }
+  }
+
   let opacContext = '';
   if (isSearching && keyword) {
     try {
       const opacRes = await fetch(`${LIBRARY_URL}index.php?keywords=${encodeURIComponent(keyword)}&search=search`);
       const html = await opacRes.text();
 
-      // Parse judul buku - sesuai struktur SLiMS
       const titleMatches = [...html.matchAll(/class="card-link text-dark"[^>]*>([^<]+)<\/a>/g)];
-
-      // Parse penulis
       const authorMatches = [...html.matchAll(/class="btn btn-outline-secondary btn-rounded">([^<]+)<\/a>/g)];
-
-      // Parse link detail buku
-      const linkMatches = [...html.matchAll(/href="(\/index\.php\?p=show_detail&id=\d+[^"]+)"/g)];
+      const linkMatches = [...html.matchAll(/href="(\/index\.php\?p=show_detail&id=(\d+)[^"]+)"/g)];
 
       if (titleMatches.length > 0) {
-        // Kelompokkan penulis per buku (bisa lebih dari 1 penulis)
-        let authorIndex = 0;
-        const books = titleMatches.slice(0, 8).map((match, i) => {
+        // Ambil ketersediaan semua buku secara paralel
+        const bookPromises = titleMatches.slice(0, 8).map(async (match, i) => {
           const title = match[1].trim();
+          const bookId = linkMatches[i]?.[2];
           const link = linkMatches[i] ? `${LIBRARY_URL}${linkMatches[i][1].replace(/^\//, '')}` : '';
 
-          // Ambil penulis (bisa lebih dari 1)
           const authors = [];
-          while (authorMatches[authorIndex]) {
+          let authorIndex = i;
+          if (authorMatches[authorIndex]) {
             authors.push(authorMatches[authorIndex][1].trim());
-            authorIndex++;
-            // Batasi maksimal 3 penulis per buku
-            if (authors.length >= 3) break;
           }
 
-          return `${i + 1}. *${title}*\n   Penulis: ${authors.join(', ') || 'Tidak diketahui'}\n   Detail: ${link}`;
+          // Ambil ketersediaan
+          const availability = bookId ? await getAvailability(bookId) : 'Tidak diketahui';
+
+          return `${i + 1}. *${title}*\n   Penulis: ${authors.join(', ') || 'Tidak diketahui'}\n   ${availability}\n   Detail: ${link}`;
         });
 
+        const books = await Promise.all(bookPromises);
         opacContext = `\n\nData buku dari OPAC untuk kata kunci "${keyword}" (${titleMatches.length} buku ditemukan):\n${books.join('\n')}\n\nLink pencarian lengkap: ${LIBRARY_URL}index.php?keywords=${encodeURIComponent(keyword)}&search=search`;
       } else {
         opacContext = `\n\nHasil pencarian OPAC untuk kata kunci "${keyword}": Tidak ditemukan buku yang sesuai.\nLink pencarian: ${LIBRARY_URL}index.php?keywords=${encodeURIComponent(keyword)}&search=search`;
@@ -83,7 +92,8 @@ Kategori Koleksi (Dewey Decimal):
 Lokasi: Future Gate Institut, Ma'had Bawwabatul Mustaqbal, Perpustakaan SMA FG, Pojok Pustaka Ruang Guru, Pojok Pustaka Ruang Terbuka Umum
 Tipe: Buku Bacaan, E-Book, Buku Referensi, Buku Teks, Jurnal, Majalah, Prosiding, Surat Kabar
 Instruksi:
-- Jika ada data buku dari OPAC, tampilkan langsung daftar bukunya kepada user secara lengkap
+- Jika ada data buku dari OPAC, tampilkan langsung daftar bukunya beserta status ketersediaannya
+- Tampilkan status "Tersedia" atau "Tidak Tersedia" dengan jelas untuk setiap buku
 - Jangan mengarang data buku yang tidak ada
 - Jawab dalam Bahasa Indonesia yang ramah dan singkat
 - Selalu sertakan link pencarian OPAC di akhir jawaban${opacContext}`;
