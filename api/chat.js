@@ -14,7 +14,7 @@ export default async function handler(req, res) {
   const lastUserMessage = messages.filter(m => m.role === 'user').pop()?.content || '';
 
   // Deteksi apakah user sedang mencari buku
-  const searchKeywords = ['cari', 'buku', 'ada', 'tersedia', 'koleksi', 'judul', 'mencari', 'temukan', 'punya'];
+  const searchKeywords = ['cari', 'buku', 'ada', 'tersedia', 'koleksi', 'judul', 'mencari', 'temukan', 'punya', 'kalo', 'kalau'];
   const isSearching = searchKeywords.some(k => lastUserMessage.toLowerCase().includes(k));
 
   // Ekstrak kata kunci pencarian
@@ -33,19 +33,35 @@ export default async function handler(req, res) {
       const opacRes = await fetch(`${LIBRARY_URL}index.php?keywords=${encodeURIComponent(keyword)}&search=search`);
       const html = await opacRes.text();
 
-      // Parse judul buku dari HTML SLiMS
-      const titleMatches = [...html.matchAll(/class="titlelist"[^>]*>([^<]+)<\/a>/g)];
-      const authorMatches = [...html.matchAll(/class="author"[^>]*>([^<]+)<\/td>/g)];
-      const locationMatches = [...html.matchAll(/class="location"[^>]*>([^<]+)<\/td>/g)];
+      // Parse judul buku - sesuai struktur SLiMS
+      const titleMatches = [...html.matchAll(/class="card-link text-dark"[^>]*>([^<]+)<\/a>/g)];
+
+      // Parse penulis
+      const authorMatches = [...html.matchAll(/class="btn btn-outline-secondary btn-rounded">([^<]+)<\/a>/g)];
+
+      // Parse link detail buku
+      const linkMatches = [...html.matchAll(/href="(\/index\.php\?p=show_detail&id=\d+[^"]+)"/g)];
 
       if (titleMatches.length > 0) {
-        const books = titleMatches.slice(0, 10).map((match, i) => {
+        // Kelompokkan penulis per buku (bisa lebih dari 1 penulis)
+        let authorIndex = 0;
+        const books = titleMatches.slice(0, 8).map((match, i) => {
           const title = match[1].trim();
-          const author = authorMatches[i]?.[1]?.trim() || 'Tidak diketahui';
-          const location = locationMatches[i]?.[1]?.trim() || '-';
-          return `- ${title} | Penulis: ${author} | Lokasi: ${location}`;
+          const link = linkMatches[i] ? `${LIBRARY_URL}${linkMatches[i][1].replace(/^\//, '')}` : '';
+
+          // Ambil penulis (bisa lebih dari 1)
+          const authors = [];
+          while (authorMatches[authorIndex]) {
+            authors.push(authorMatches[authorIndex][1].trim());
+            authorIndex++;
+            // Batasi maksimal 3 penulis per buku
+            if (authors.length >= 3) break;
+          }
+
+          return `${i + 1}. *${title}*\n   Penulis: ${authors.join(', ') || 'Tidak diketahui'}\n   Detail: ${link}`;
         });
-        opacContext = `\n\nData buku dari OPAC untuk kata kunci "${keyword}":\n${books.join('\n')}\nLink pencarian: ${LIBRARY_URL}index.php?keywords=${encodeURIComponent(keyword)}&search=search`;
+
+        opacContext = `\n\nData buku dari OPAC untuk kata kunci "${keyword}" (${titleMatches.length} buku ditemukan):\n${books.join('\n')}\n\nLink pencarian lengkap: ${LIBRARY_URL}index.php?keywords=${encodeURIComponent(keyword)}&search=search`;
       } else {
         opacContext = `\n\nHasil pencarian OPAC untuk kata kunci "${keyword}": Tidak ditemukan buku yang sesuai.\nLink pencarian: ${LIBRARY_URL}index.php?keywords=${encodeURIComponent(keyword)}&search=search`;
       }
@@ -67,7 +83,7 @@ Kategori Koleksi (Dewey Decimal):
 Lokasi: Future Gate Institut, Ma'had Bawwabatul Mustaqbal, Perpustakaan SMA FG, Pojok Pustaka Ruang Guru, Pojok Pustaka Ruang Terbuka Umum
 Tipe: Buku Bacaan, E-Book, Buku Referensi, Buku Teks, Jurnal, Majalah, Prosiding, Surat Kabar
 Instruksi:
-- Jika ada data buku dari OPAC, tampilkan langsung daftar bukunya kepada user
+- Jika ada data buku dari OPAC, tampilkan langsung daftar bukunya kepada user secara lengkap
 - Jangan mengarang data buku yang tidak ada
 - Jawab dalam Bahasa Indonesia yang ramah dan singkat
 - Selalu sertakan link pencarian OPAC di akhir jawaban${opacContext}`;
