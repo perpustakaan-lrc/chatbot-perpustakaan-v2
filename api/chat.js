@@ -10,13 +10,23 @@ export default async function handler(req, res) {
 
   const LIBRARY_URL = 'https://perpustakaan.smafg.sch.id/';
 
+  // Ambil pesan terakhir dan semua riwayat pesan user
   const lastUserMessage = messages.filter(m => m.role === 'user').pop()?.content || '';
+  const allUserMessages = messages.filter(m => m.role === 'user').map(m => m.content).join(' ');
 
+  // Deteksi pencarian buku
   const searchKeywords = ['cari', 'buku', 'ada', 'tersedia', 'koleksi', 'judul', 'mencari', 'temukan', 'punya', 'kalo', 'kalau', 'dipinjam', 'pinjam'];
-  const isSearching = searchKeywords.some(k => lastUserMessage.toLowerCase().includes(k));
+  const followUpKeywords = ['nomor', 'apakah tersedia', 'status', 'yang pertama', 'yang kedua', 'yang ketiga', 'itu tersedia', 'bisa dipinjam', 'masih ada'];
 
-  const stopWords = ['cari', 'buku', 'ada', 'apakah', 'apa', 'yang', 'di', 'ke', 'dari', 'untuk', 'dengan', 'tersedia', 'koleksi', 'judul', 'mencari', 'temukan', 'punya', 'kalo', 'kalau', 'tentang', 'dipinjam', 'pinjam', 'mana'];
-  const keyword = lastUserMessage
+  const isSearching = searchKeywords.some(k => lastUserMessage.toLowerCase().includes(k));
+  const isFollowUp = followUpKeywords.some(k => lastUserMessage.toLowerCase().includes(k));
+
+  // Ekstrak kata kunci
+  const stopWords = ['cari', 'buku', 'ada', 'apakah', 'apa', 'yang', 'di', 'ke', 'dari', 'untuk', 'dengan', 'tersedia', 'koleksi', 'judul', 'mencari', 'temukan', 'punya', 'kalo', 'kalau', 'tentang', 'dipinjam', 'pinjam', 'mana', 'nomor', 'status', 'masih', 'bisa', 'pertama', 'kedua', 'ketiga'];
+
+  // Jika follow up, gunakan semua riwayat pesan untuk temukan keyword
+  const sourceMessage = isFollowUp ? allUserMessages : lastUserMessage;
+  const keyword = sourceMessage
     .toLowerCase()
     .split(' ')
     .filter(w => !stopWords.includes(w) && w.length > 2)
@@ -26,22 +36,22 @@ export default async function handler(req, res) {
   // Fungsi ambil ketersediaan dari halaman detail buku
   async function getAvailability(bookId) {
     try {
-      const res = await fetch(`${LIBRARY_URL}index.php?p=show_detail&id=${bookId}`);
-      const html = await res.text();
+      const detailRes = await fetch(`${LIBRARY_URL}index.php?p=show_detail&id=${bookId}`);
+      const html = await detailRes.text();
 
-      // Parse baris ketersediaan dari tabel
       const rowMatches = [...html.matchAll(/<tr><td class="biblio-item-code">([^<]+)<\/td><td class="biblio-call-number">([^<]+)<\/td><td class="biblio-location">([^<]+)<\/td><td[^>]*><b[^>]*>([^<]+)<\/b><\/td><\/tr>/g)];
 
       if (rowMatches.length === 0) return 'Tidak ada data ketersediaan';
 
-      return rowMatches.map(r => `Kode: ${r[1]} | Lokasi: ${r[3]} | Status: ${r[4]}`).join(' | ');
+      return rowMatches.map(r => `Lokasi: ${r[3]} | Status: ${r[4]}`).join(' & ');
     } catch {
       return 'Gagal mengambil ketersediaan';
     }
   }
 
+  // Fetch data OPAC
   let opacContext = '';
-  if (isSearching && keyword) {
+  if ((isSearching || isFollowUp) && keyword) {
     try {
       const opacRes = await fetch(`${LIBRARY_URL}index.php?keywords=${encodeURIComponent(keyword)}&search=search`);
       const html = await opacRes.text();
@@ -51,22 +61,14 @@ export default async function handler(req, res) {
       const linkMatches = [...html.matchAll(/href="(\/index\.php\?p=show_detail&id=(\d+)[^"]+)"/g)];
 
       if (titleMatches.length > 0) {
-        // Ambil ketersediaan semua buku secara paralel
         const bookPromises = titleMatches.slice(0, 8).map(async (match, i) => {
           const title = match[1].trim();
           const bookId = linkMatches[i]?.[2];
           const link = linkMatches[i] ? `${LIBRARY_URL}${linkMatches[i][1].replace(/^\//, '')}` : '';
-
-          const authors = [];
-          let authorIndex = i;
-          if (authorMatches[authorIndex]) {
-            authors.push(authorMatches[authorIndex][1].trim());
-          }
-
-          // Ambil ketersediaan
+          const author = authorMatches[i]?.[1]?.trim() || 'Tidak diketahui';
           const availability = bookId ? await getAvailability(bookId) : 'Tidak diketahui';
 
-          return `${i + 1}. *${title}*\n   Penulis: ${authors.join(', ') || 'Tidak diketahui'}\n   ${availability}\n   Detail: ${link}`;
+          return `${i + 1}. *${title}*\n   Penulis: ${author}\n   ${availability}\n   Detail: ${link}`;
         });
 
         const books = await Promise.all(bookPromises);
@@ -94,6 +96,7 @@ Tipe: Buku Bacaan, E-Book, Buku Referensi, Buku Teks, Jurnal, Majalah, Prosiding
 Instruksi:
 - Jika ada data buku dari OPAC, tampilkan langsung daftar bukunya beserta status ketersediaannya
 - Tampilkan status "Tersedia" atau "Tidak Tersedia" dengan jelas untuk setiap buku
+- Jika user bertanya tentang buku tertentu dari daftar (misal "buku nomor 1"), jawab berdasarkan data yang sudah ada
 - Jangan mengarang data buku yang tidak ada
 - Jawab dalam Bahasa Indonesia yang ramah dan singkat
 - Selalu sertakan link pencarian OPAC di akhir jawaban${opacContext}`;
