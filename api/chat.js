@@ -16,7 +16,14 @@ export default async function handler(req, res) {
 
   const searchKeywords = ['cari', 'buku', 'ada', 'tersedia', 'koleksi', 'judul', 'mencari', 'temukan', 'punya', 'kalo', 'kalau', 'dipinjam', 'pinjam'];
   const followUpKeywords = ['nomor', 'apakah tersedia', 'status', 'yang pertama', 'yang kedua', 'yang ketiga', 'itu tersedia', 'bisa dipinjam', 'masih ada'];
-  const loanKeywords = ['pinjaman saya', 'sisa waktu', 'jatuh tempo', 'keterlambatan', 'terlambat', 'masa pinjam', 'cek pinjaman', 'pinjaman anggota', 'anggota pinjam'];
+  const loanKeywords = [
+    'pinjaman', 'sisa waktu', 'jatuh tempo', 'keterlambatan',
+    'terlambat', 'masa pinjam', 'cek pinjaman', 'pinjaman anggota',
+    'anggota pinjam', 'masa peminjaman', 'peminjamannya',
+    'meminjam buku', 'cek masa', 'berapa lama', 'kapan kembali',
+    'tanggal kembali', 'waktu pinjam', 'lama pinjam', 'nama meminjam',
+    'atas nama', 'sedang meminjam', 'masih meminjam'
+  ];
 
   const isSearching = searchKeywords.some(k => lastUserMessage.toLowerCase().includes(k));
   const isFollowUp = followUpKeywords.some(k => lastUserMessage.toLowerCase().includes(k));
@@ -35,16 +42,31 @@ export default async function handler(req, res) {
   // Fungsi login admin SLiMS
   async function loginAdmin() {
     try {
-      const loginRes = await fetch(`${ADMIN_URL}index.php`, {
+      // Langkah 1: Ambil halaman login untuk dapatkan CSRF token dan cookie awal
+      const loginPageRes = await fetch(`${LIBRARY_URL}index.php?p=login`);
+      const loginHtml = await loginPageRes.text();
+      const cookieInit = loginPageRes.headers.get('set-cookie') || '';
+
+      // Ambil CSRF token
+      const csrfMatch = loginHtml.match(/name="(_csrf_token_[^"]+)"\s+value="([^"]+)"/);
+      if (!csrfMatch) return null;
+      const csrfName = csrfMatch[1];
+      const csrfValue = csrfMatch[2];
+
+      // Langkah 2: Login dengan CSRF token
+      const loginRes = await fetch(`${LIBRARY_URL}index.php?p=login`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: `username=${encodeURIComponent(process.env.SLIMS_USERNAME)}&password=${encodeURIComponent(process.env.SLIMS_PASSWORD)}&action=login`,
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Cookie': cookieInit
+        },
+        body: `userName=${encodeURIComponent(process.env.SLIMS_USERNAME)}&passWord=${encodeURIComponent(process.env.SLIMS_PASSWORD)}&${csrfName}=${encodeURIComponent(csrfValue)}&logMeIn=Masuk`,
         redirect: 'follow'
       });
-      // Ambil cookie session
-      const cookie = loginRes.headers.get('set-cookie');
+
+      const cookie = loginRes.headers.get('set-cookie') || cookieInit;
       return cookie;
-    } catch {
+    } catch (e) {
       return null;
     }
   }
@@ -55,12 +77,10 @@ export default async function handler(req, res) {
       const today = new Date().toISOString().split('T')[0];
       const url = `${ADMIN_URL}modules/reporting/customs/overdued_list.php?reportView=true&startDate=2000-01-01&untilDate=${today}&id_name=${encodeURIComponent(memberName)}`;
       const overdueRes = await fetch(url, {
-        credentials: 'include',
         headers: cookie ? { 'Cookie': cookie } : {}
       });
       const html = await overdueRes.text();
 
-      // Parse data keterlambatan
       const memberMatches = [...html.matchAll(/<div style="font-weight: bold[^>]*>([^<]+)<\/div>/g)];
       const loanMatches = [...html.matchAll(/<tr><td valign="top" width="10%">([^<]+)<\/td><td valign="top" width="40%">([^<]+)<div>/g)];
       const overdueMatches = [...html.matchAll(/Keterlambatan: (\d+) hari/g)];
@@ -89,7 +109,6 @@ export default async function handler(req, res) {
     try {
       const url = `${ADMIN_URL}modules/reporting/customs/due_date_warning.php?reportView=true&id_name=${encodeURIComponent(memberName)}`;
       const dueRes = await fetch(url, {
-        credentials: 'include',
         headers: cookie ? { 'Cookie': cookie } : {}
       });
       const html = await dueRes.text();
@@ -124,9 +143,12 @@ export default async function handler(req, res) {
   // Fetch data peminjaman jika user bertanya tentang pinjaman
   if (isLoanCheck) {
     const cookie = await loginAdmin();
+
+    // Ekstrak nama anggota dari pesan user
     const memberName = lastUserMessage
       .toLowerCase()
-      .replace(/pinjaman|anggota|cek|saya|keterlambatan|terlambat|masa pinjam|jatuh tempo|sisa waktu/g, '')
+      .replace(/pinjaman|anggota|cek|saya|keterlambatan|terlambat|masa pinjam|jatuh tempo|sisa waktu|masa peminjaman|bisakah|kamu|mengecek|buku|atas nama|meminjam|peminjamannya|mau|apakah|bisa|saya mau|sedang|masih|meminjam|nama|lama|berapa|kapan|kembali|tanggal|waktu/g, '')
+      .replace(/\s+/g, ' ')
       .trim();
 
     const [overdued, dueWarning] = await Promise.all([
