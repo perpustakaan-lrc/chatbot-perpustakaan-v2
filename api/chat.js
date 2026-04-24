@@ -9,22 +9,21 @@ export default async function handler(req, res) {
   if (!messages) return res.status(400).json({ error: 'Missing messages' });
 
   const LIBRARY_URL = 'https://perpustakaan.smafg.sch.id/';
+  const ADMIN_URL = 'https://perpustakaan.smafg.sch.id/admin/';
 
-  // Ambil pesan terakhir dan semua riwayat pesan user
   const lastUserMessage = messages.filter(m => m.role === 'user').pop()?.content || '';
   const allUserMessages = messages.filter(m => m.role === 'user').map(m => m.content).join(' ');
 
-  // Deteksi pencarian buku
   const searchKeywords = ['cari', 'buku', 'ada', 'tersedia', 'koleksi', 'judul', 'mencari', 'temukan', 'punya', 'kalo', 'kalau', 'dipinjam', 'pinjam'];
   const followUpKeywords = ['nomor', 'apakah tersedia', 'status', 'yang pertama', 'yang kedua', 'yang ketiga', 'itu tersedia', 'bisa dipinjam', 'masih ada'];
+  const loanKeywords = ['pinjaman saya', 'sisa waktu', 'jatuh tempo', 'keterlambatan', 'terlambat', 'masa pinjam', 'cek pinjaman', 'pinjaman anggota', 'anggota pinjam'];
 
   const isSearching = searchKeywords.some(k => lastUserMessage.toLowerCase().includes(k));
   const isFollowUp = followUpKeywords.some(k => lastUserMessage.toLowerCase().includes(k));
+  const isLoanCheck = loanKeywords.some(k => lastUserMessage.toLowerCase().includes(k));
 
-  // Ekstrak kata kunci
   const stopWords = ['cari', 'buku', 'ada', 'apakah', 'apa', 'yang', 'di', 'ke', 'dari', 'untuk', 'dengan', 'tersedia', 'koleksi', 'judul', 'mencari', 'temukan', 'punya', 'kalo', 'kalau', 'tentang', 'dipinjam', 'pinjam', 'mana', 'nomor', 'status', 'masih', 'bisa', 'pertama', 'kedua', 'ketiga'];
 
-  // Jika follow up, gunakan semua riwayat pesan untuk temukan keyword
   const sourceMessage = isFollowUp ? allUserMessages : lastUserMessage;
   const keyword = sourceMessage
     .toLowerCase()
@@ -33,24 +32,112 @@ export default async function handler(req, res) {
     .join(' ')
     .trim();
 
-  // Fungsi ambil ketersediaan dari halaman detail buku
+  // Fungsi login admin SLiMS
+  async function loginAdmin() {
+    try {
+      const loginRes = await fetch(`${ADMIN_URL}index.php`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: `username=${encodeURIComponent(process.env.SLIMS_USERNAME)}&password=${encodeURIComponent(process.env.SLIMS_PASSWORD)}&action=login`,
+        redirect: 'follow'
+      });
+      // Ambil cookie session
+      const cookie = loginRes.headers.get('set-cookie');
+      return cookie;
+    } catch {
+      return null;
+    }
+  }
+
+  // Fungsi ambil data keterlambatan
+  async function getOverduedList(cookie, memberName = '') {
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const url = `${ADMIN_URL}modules/reporting/customs/overdued_list.php?reportView=true&startDate=2000-01-01&untilDate=${today}&id_name=${encodeURIComponent(memberName)}`;
+      const overdueRes = await fetch(url, {
+        credentials: 'include',
+        headers: cookie ? { 'Cookie': cookie } : {}
+      });
+      const html = await overdueRes.text();
+
+      // Parse data keterlambatan
+      const memberMatches = [...html.matchAll(/<div style="font-weight: bold[^>]*>([^<]+)<\/div>/g)];
+      const loanMatches = [...html.matchAll(/<tr><td valign="top" width="10%">([^<]+)<\/td><td valign="top" width="40%">([^<]+)<div>/g)];
+      const overdueMatches = [...html.matchAll(/Keterlambatan: (\d+) hari/g)];
+      const dateMatches = [...html.matchAll(/Tanggal Pinjam: ([^&]+) &nbsp; Tanggal Kembali: ([^<]+)<\/td>/g)];
+
+      if (memberMatches.length === 0) return 'Tidak ada data keterlambatan.';
+
+      const results = memberMatches.map((m, i) => {
+        const member = m[1].trim();
+        const bookCode = loanMatches[i]?.[1]?.trim() || '-';
+        const bookTitle = loanMatches[i]?.[2]?.trim() || '-';
+        const overdue = overdueMatches[i]?.[1] || '0';
+        const loanDate = dateMatches[i]?.[1]?.trim() || '-';
+        const dueDate = dateMatches[i]?.[2]?.trim() || '-';
+        return `- ${member}\n  Buku: ${bookTitle} (${bookCode})\n  Tanggal Pinjam: ${loanDate} | Jatuh Tempo: ${dueDate}\n  Keterlambatan: ${overdue} hari`;
+      });
+
+      return results.join('\n\n');
+    } catch (e) {
+      return `Gagal mengambil data keterlambatan: ${e.message}`;
+    }
+  }
+
+  // Fungsi ambil data jatuh tempo
+  async function getDueDateWarning(cookie, memberName = '') {
+    try {
+      const url = `${ADMIN_URL}modules/reporting/customs/due_date_warning.php?reportView=true&id_name=${encodeURIComponent(memberName)}`;
+      const dueRes = await fetch(url, {
+        credentials: 'include',
+        headers: cookie ? { 'Cookie': cookie } : {}
+      });
+      const html = await dueRes.text();
+
+      if (html.includes('Tidak Ada Data')) return 'Tidak ada peminjaman yang akan jatuh tempo dalam 3 hari ke depan.';
+
+      const memberMatches = [...html.matchAll(/<div style="font-weight: bold[^>]*>([^<]+)<\/div>/g)];
+      if (memberMatches.length === 0) return 'Tidak ada data jatuh tempo.';
+
+      return memberMatches.map(m => `- ${m[1].trim()}`).join('\n');
+    } catch (e) {
+      return `Gagal mengambil data jatuh tempo: ${e.message}`;
+    }
+  }
+
+  // Fungsi ambil ketersediaan buku
   async function getAvailability(bookId) {
     try {
       const detailRes = await fetch(`${LIBRARY_URL}index.php?p=show_detail&id=${bookId}`);
       const html = await detailRes.text();
-
       const rowMatches = [...html.matchAll(/<tr><td class="biblio-item-code">([^<]+)<\/td><td class="biblio-call-number">([^<]+)<\/td><td class="biblio-location">([^<]+)<\/td><td[^>]*><b[^>]*>([^<]+)<\/b><\/td><\/tr>/g)];
-
       if (rowMatches.length === 0) return 'Tidak ada data ketersediaan';
-
       return rowMatches.map(r => `Lokasi: ${r[3]} | Status: ${r[4]}`).join(' & ');
     } catch {
       return 'Gagal mengambil ketersediaan';
     }
   }
 
-  // Fetch data OPAC
   let opacContext = '';
+  let loanContext = '';
+
+  // Fetch data peminjaman jika user bertanya tentang pinjaman
+  if (isLoanCheck) {
+    const cookie = await loginAdmin();
+    const memberName = lastUserMessage
+      .toLowerCase()
+      .replace(/pinjaman|anggota|cek|saya|keterlambatan|terlambat|masa pinjam|jatuh tempo|sisa waktu/g, '')
+      .trim();
+
+    const [overdued, dueWarning] = await Promise.all([
+      getOverduedList(cookie, memberName),
+      getDueDateWarning(cookie, memberName)
+    ]);
+
+    loanContext = `\n\nData Peminjaman Real-time dari SLiMS:\n\n📋 Anggota yang Terlambat:\n${overdued}\n\n⏰ Akan Jatuh Tempo (3 hari ke depan):\n${dueWarning}`;
+  }
+
+  // Fetch data OPAC jika user mencari buku
   if ((isSearching || isFollowUp) && keyword) {
     try {
       const opacRes = await fetch(`${LIBRARY_URL}index.php?keywords=${encodeURIComponent(keyword)}&search=search`);
@@ -67,7 +154,6 @@ export default async function handler(req, res) {
           const link = linkMatches[i] ? `${LIBRARY_URL}${linkMatches[i][1].replace(/^\//, '')}` : '';
           const author = authorMatches[i]?.[1]?.trim() || 'Tidak diketahui';
           const availability = bookId ? await getAvailability(bookId) : 'Tidak diketahui';
-
           return `${i + 1}. *${title}*\n   Penulis: ${author}\n   ${availability}\n   Detail: ${link}`;
         });
 
@@ -95,11 +181,12 @@ Lokasi: Future Gate Institut, Ma'had Bawwabatul Mustaqbal, Perpustakaan SMA FG, 
 Tipe: Buku Bacaan, E-Book, Buku Referensi, Buku Teks, Jurnal, Majalah, Prosiding, Surat Kabar
 Instruksi:
 - Jika ada data buku dari OPAC, tampilkan langsung daftar bukunya beserta status ketersediaannya
+- Jika ada data peminjaman, tampilkan dengan jelas nama anggota, judul buku, tanggal jatuh tempo, dan sisa hari
 - Tampilkan status "Tersedia" atau "Tidak Tersedia" dengan jelas untuk setiap buku
-- Jika user bertanya tentang buku tertentu dari daftar (misal "buku nomor 1"), jawab berdasarkan data yang sudah ada
-- Jangan mengarang data buku yang tidak ada
+- Jika user bertanya tentang buku tertentu dari daftar, jawab berdasarkan data yang sudah ada
+- Jangan mengarang data yang tidak ada
 - Jawab dalam Bahasa Indonesia yang ramah dan singkat
-- Selalu sertakan link pencarian OPAC di akhir jawaban${opacContext}`;
+- Selalu sertakan link pencarian OPAC di akhir jawaban jika relevan${opacContext}${loanContext}`;
 
   try {
     const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
