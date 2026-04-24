@@ -9,7 +9,7 @@ export default async function handler(req, res) {
   if (!messages) return res.status(400).json({ error: 'Missing messages' });
 
   const LIBRARY_URL = 'https://perpustakaan.smafg.sch.id/';
-  const ADMIN_URL = 'https://perpustakaan.smafg.sch.id/index.php?p=login';
+  const ADMIN_URL = 'https://perpustakaan.smafg.sch.id/admin';
 
   const lastUserMessage = messages.filter(m => m.role === 'user').pop()?.content || '';
   const allUserMessages = messages.filter(m => m.role === 'user').map(m => m.content).join(' ');
